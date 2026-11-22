@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Sparkles, Candy, RotateCcw, Heart, ExternalLink } from 'lucide-react';
 import { sound } from '../utils/audio';
 import { Character } from '../types/character';
+import {
+  subscribeLuckyCandyStats,
+  recordLuckyCandyDrawInFirestore,
+} from '../firebase/services';
 
 interface LuckyCandyModalProps {
   isOpen: boolean;
@@ -104,6 +108,15 @@ export const LuckyCandyModal: React.FC<LuckyCandyModalProps> = ({
   const [isShaking, setIsShaking] = useState(false);
   const [drawnCandy, setDrawnCandy] = useState<CandyFortune | null>(null);
   const [drawnCharacter, setDrawnCharacter] = useState<Character | null>(null);
+  const [totalDraws, setTotalDraws] = useState(0);
+
+  useEffect(() => {
+    const unsub = subscribeLuckyCandyStats(
+      (stats) => setTotalDraws(stats.totalDraws),
+      () => {}
+    );
+    return () => unsub();
+  }, []);
 
   if (!isOpen) return null;
 
@@ -121,9 +134,24 @@ export const LuckyCandyModal: React.FC<LuckyCandyModalProps> = ({
       if (characters.length > 0 && Math.random() > 0.5) {
         const randChar = characters[Math.floor(Math.random() * characters.length)];
         setDrawnCharacter(randChar);
+        recordLuckyCandyDrawInFirestore({
+          characterId: randChar.id,
+          characterName: randChar.name,
+          characterAvatar: randChar.avatar,
+          sweetFlavor: randChar.sweetFlavor,
+          genre: randChar.genre,
+          type: 'character',
+        }).catch(() => {});
       } else {
         const randFortune = CANDY_FORTUNES[Math.floor(Math.random() * CANDY_FORTUNES.length)];
         setDrawnCandy(randFortune);
+        recordLuckyCandyDrawInFirestore({
+          characterId: 'wyn_special_candy_fortune',
+          characterName: randFortune.name,
+          sweetFlavor: randFortune.flavor,
+          genre: randFortune.vibe,
+          type: 'fortune',
+        }).catch(() => {});
       }
     }, 700);
   };
@@ -164,7 +192,7 @@ export const LuckyCandyModal: React.FC<LuckyCandyModalProps> = ({
                   Hũ Bốc Kẹo Ngon
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Rút một viên kẹo may mắn và nhận lời thì thầm ngọt ngào từ Wyn ✨
+                  Rút một viên kẹo may mắn và nhận lời thì thầm từ Wyn · {totalDraws} lượt bốc ✨
                 </p>
               </div>
             </div>

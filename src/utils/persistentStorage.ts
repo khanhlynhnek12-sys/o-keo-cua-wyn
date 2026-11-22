@@ -252,3 +252,88 @@ export async function loadPersistedHeroPolaroidPhoto(): Promise<string | null> {
   return null;
 }
 
+const WYN_AVATAR_KEY = 'wyn_admin_avatar';
+const SITE_LOGO_KEY = 'wyn_site_logo';
+
+/**
+ * Save Wyn avatar persistently to IndexedDB and localStorage
+ */
+export async function persistWynAvatar(avatarUrl: string): Promise<void> {
+  try {
+    await idbSet(WYN_AVATAR_KEY, avatarUrl);
+  } catch {
+    //
+  }
+  try {
+    if (avatarUrl) {
+      localStorage.setItem(WYN_AVATAR_KEY, avatarUrl);
+    } else {
+      localStorage.removeItem(WYN_AVATAR_KEY);
+    }
+  } catch {
+    //
+  }
+}
+
+/**
+ * Load Wyn avatar checking IndexedDB first then localStorage
+ */
+export async function loadPersistedWynAvatar(): Promise<string | null> {
+  try {
+    const idbResult = await idbGet<string>(WYN_AVATAR_KEY);
+    if (idbResult) return idbResult;
+  } catch {
+    //
+  }
+  try {
+    const local = localStorage.getItem(WYN_AVATAR_KEY);
+    if (local) return local;
+  } catch {
+    //
+  }
+  return null;
+}
+
+/**
+ * Save site logo persistently to IndexedDB and localStorage
+ */
+export async function persistSiteLogo(logoUrl: string | null): Promise<void> {
+  try {
+    if (logoUrl) {
+      await idbSet(SITE_LOGO_KEY, logoUrl);
+    } else {
+      await idbDelete(SITE_LOGO_KEY);
+    }
+  } catch {
+    //
+  }
+  try {
+    if (logoUrl) {
+      localStorage.setItem(SITE_LOGO_KEY, logoUrl);
+    } else {
+      localStorage.removeItem(SITE_LOGO_KEY);
+    }
+  } catch {
+    //
+  }
+}
+
+/**
+ * Load site logo checking IndexedDB first then localStorage
+ */
+export async function loadPersistedSiteLogo(): Promise<string | null | undefined> {
+  try {
+    const idbResult = await idbGet<string>(SITE_LOGO_KEY);
+    if (idbResult) return idbResult;
+  } catch {
+    //
+  }
+  try {
+    const local = localStorage.getItem(SITE_LOGO_KEY);
+    if (local) return local;
+  } catch {
+    //
+  }
+  return undefined;
+}
+

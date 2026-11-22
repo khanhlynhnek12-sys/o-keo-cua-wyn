@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles,
@@ -13,9 +13,17 @@ import {
   Compass,
   X,
   Volume2,
+  Clock,
 } from 'lucide-react';
 import { sound } from '../utils/audio';
 import { Character } from '../types/character';
+import {
+  LuckyCandyDrawEntry,
+  LuckyCandyStats,
+  subscribeLuckyCandyDraws,
+  subscribeLuckyCandyStats,
+  recordLuckyCandyDrawInFirestore,
+} from '../firebase/services';
 
 interface LuckyCandyPageProps {
   characters: Character[];
@@ -70,6 +78,30 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
   const [drawnCharacter, setDrawnCharacter] = useState<Character | null>(null);
   const [unwrapBurst, setUnwrapBurst] = useState(false);
 
+  // Real-time Firestore stats & recent draws feed
+  const [luckyStats, setLuckyStats] = useState<LuckyCandyStats>({ totalDraws: 0 });
+  const [recentDraws, setRecentDraws] = useState<LuckyCandyDrawEntry[]>([]);
+
+  useEffect(() => {
+    const unsubStats = subscribeLuckyCandyStats(
+      (stats) => setLuckyStats(stats),
+      (err) => console.warn('Lucky candy stats fallback:', err)
+    );
+    const unsubDraws = subscribeLuckyCandyDraws(
+      (draws) => setRecentDraws(draws),
+      (err) => console.warn('Lucky candy draws fallback:', err)
+    );
+    return () => {
+      unsubStats();
+      unsubDraws();
+    };
+  }, []);
+
+  // Keep revealed character synced with live likesCount / tastedCount updates
+  const activeDrawnCharacter = drawnCharacter
+    ? characters.find((c) => c.id === drawnCharacter.id) || drawnCharacter
+    : null;
+
   // Trigger draw: Jar shakes up and down -> Candy appears in the center of the screen
   const handleStartDraw = () => {
     if (drawPhase === 'shaking') return;
@@ -98,6 +130,19 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
     sound.playSuccess();
     sound.playChime();
     setUnwrapBurst(true);
+
+    if (drawnCharacter) {
+      recordLuckyCandyDrawInFirestore({
+        characterId: drawnCharacter.id,
+        characterName: drawnCharacter.name,
+        characterAvatar: drawnCharacter.avatar,
+        sweetFlavor: drawnCharacter.sweetFlavor,
+        genre: drawnCharacter.genre,
+        type: drawnCharacter.id === 'wyn_special_candy_fortune' ? 'fortune' : 'character',
+      }).catch((err) => {
+        console.warn('Could not record lucky candy draw in Firestore:', err);
+      });
+    }
 
     setTimeout(() => {
       setDrawPhase('revealed');
@@ -153,9 +198,9 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
           </h1>
         </div>
 
-        <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#fff0f3] border border-[#fbd3db] text-xs font-semibold text-[#cf385e] shadow-2xs self-start sm:self-auto">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#fff0f3] border border-[#fbd3db] text-xs font-semibold text-[#cf385e] shadow-2xs self-start sm:self-auto">
           <Sparkles className="w-3.5 h-3.5 text-[#cf385e]" />
-          <span>✨ Rút ngẫu nhiên thẻ kẹo ngọt độc quyền</span>
+          <span>✨ Rút ngẫu nhiên thẻ kẹo ngọt · Đã bốc {luckyStats.totalDraws} lần</span>
         </div>
       </div>
 
@@ -418,6 +463,96 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
         </div>
       </div>
 
+      {/* Real-time Recent Lucky Candy Draws Feed */}
+      <div className="bg-white rounded-3xl border border-[#fae2e5] p-6 sm:p-8 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-100 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🍬</span>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-800">
+                Nhật Ký Bốc Kẹo Duyên Định Gần Đây
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Đồng bộ thời gian thực cùng mọi nàng ghé thăm Ổ kẹo ({luckyStats.totalDraws} lượt bốc)
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full self-start sm:self-auto">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Đồng bộ Realtime</span>
+          </span>
+        </div>
+
+        {recentDraws.length === 0 ? (
+          <div className="text-center py-6 space-y-1.5 text-xs text-slate-500">
+            <p className="font-semibold text-slate-700">Chưa có lượt bốc kẹo nào được ghi nhận</p>
+            <p>Hãy chạm vào hũ kẹo phía trên để trở thành người mở hàng đầu tiên nhé! ✨</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {recentDraws.map((draw) => {
+              const matchedChar = characters.find((c) => c.id === draw.characterId);
+              const avatarSrc = matchedChar?.avatar || draw.characterAvatar;
+              const formattedTime = (() => {
+                try {
+                  return new Date(draw.createdAt).toLocaleTimeString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit',
+                  });
+                } catch {
+                  return '';
+                }
+              })();
+
+              return (
+                <div
+                  key={draw.id}
+                  onClick={() => {
+                    if (matchedChar) {
+                      sound.playPop();
+                      onSelectCharacter(matchedChar);
+                    }
+                  }}
+                  className={`flex items-center gap-3 p-3 rounded-2xl border border-rose-100 bg-rose-50/40 transition-all ${
+                    matchedChar ? 'hover:bg-rose-50 hover:border-rose-300 cursor-pointer' : ''
+                  }`}
+                >
+                  {avatarSrc ? (
+                    <img
+                      src={avatarSrc}
+                      alt={draw.characterName}
+                      className="w-11 h-11 rounded-xl object-cover border border-rose-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-11 h-11 rounded-xl bg-rose-100 flex items-center justify-center text-xl shrink-0">
+                      🍬
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-slate-800 truncate">
+                      {draw.characterName}
+                    </div>
+                    {draw.sweetFlavor && (
+                      <div className="text-[11px] text-rose-600 font-medium truncate">
+                        {draw.sweetFlavor}
+                      </div>
+                    )}
+                    {formattedTime && (
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-0.5">
+                        <Clock className="w-3 h-3" />
+                        <span>{formattedTime}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* ========================================================================= */}
       {/* INTERACTION OVERLAY: "1 CỤC KẸO HIỆN RA GIỮA MÀN HÌNH BẤM VÀO MỞ RA ẤY"  */}
       {/* ========================================================================= */}
@@ -517,7 +652,7 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
       {/* REVEALED DESTINY CHARACTER MODAL ("MỞ RA ẤY")                             */}
       {/* ========================================================================= */}
       <AnimatePresence>
-        {drawPhase === 'revealed' && drawnCharacter && (
+        {drawPhase === 'revealed' && activeDrawnCharacter && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -556,26 +691,29 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
                 <div className="sm:col-span-5 flex flex-col items-center">
                   <div className="relative group">
                     <img
-                      src={drawnCharacter.avatar}
-                      alt={drawnCharacter.name}
+                      src={activeDrawnCharacter.avatar}
+                      alt={activeDrawnCharacter.name}
                       className="w-36 h-36 sm:w-44 sm:h-44 rounded-2xl object-cover border-4 border-white shadow-md group-hover:scale-102 transition-transform"
                     />
-                    {drawnCharacter.id !== 'wyn_special_candy_fortune' && (
+                    {activeDrawnCharacter.id !== 'wyn_special_candy_fortune' && (
                       <button
                         type="button"
-                        onClick={() => onToggleFavorite(drawnCharacter.id)}
-                        className={`absolute top-2.5 right-2.5 p-2 rounded-full backdrop-blur-xs transition-all shadow-sm ${
-                          isFavorite(drawnCharacter.id)
+                        onClick={() => onToggleFavorite(activeDrawnCharacter.id)}
+                        className={`absolute top-2.5 right-2.5 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full backdrop-blur-xs transition-all shadow-sm ${
+                          isFavorite(activeDrawnCharacter.id)
                             ? 'bg-rose-500 text-white'
-                            : 'bg-white/85 text-slate-600 hover:text-rose-500'
+                            : 'bg-white/90 text-slate-600 hover:text-rose-500'
                         }`}
-                        title="Yêu thích nhân vật"
+                        title={`Yêu thích nhân vật (${activeDrawnCharacter.likesCount || 0} lượt tim)`}
                       >
                         <Heart
                           className={`w-4 h-4 ${
-                            isFavorite(drawnCharacter.id) ? 'fill-current' : ''
+                            isFavorite(activeDrawnCharacter.id) ? 'fill-current' : ''
                           }`}
                         />
+                        <span className="text-[11px] font-bold tabular-nums">
+                          {activeDrawnCharacter.likesCount || 0}
+                        </span>
                       </button>
                     )}
                   </div>
@@ -585,31 +723,31 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
                 <div className="sm:col-span-7 space-y-3">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white border border-rose-200 text-[#b53457] shadow-2xs">
-                      {drawnCharacter.genre}
+                      {activeDrawnCharacter.genre}
                     </span>
-                    {drawnCharacter.sweetFlavor && (
+                    {activeDrawnCharacter.sweetFlavor && (
                       <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 border border-amber-200 text-amber-800 shadow-2xs">
-                        🍬 {drawnCharacter.sweetFlavor}
+                        🍬 {activeDrawnCharacter.sweetFlavor}
                       </span>
                     )}
                   </div>
 
                   <h3 className="text-xl sm:text-2xl font-bold text-slate-800">
-                    {drawnCharacter.name}
+                    {activeDrawnCharacter.name}
                   </h3>
 
-                  {drawnCharacter.tagline && (
+                  {activeDrawnCharacter.tagline && (
                     <p className="text-xs sm:text-sm font-medium text-rose-600 italic">
-                      &ldquo;{drawnCharacter.tagline}&rdquo;
+                      &ldquo;{activeDrawnCharacter.tagline}&rdquo;
                     </p>
                   )}
 
                   <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
-                    {drawnCharacter.backstory}
+                    {activeDrawnCharacter.backstory}
                   </p>
 
                   {/* First whisper bubble */}
-                  {drawnCharacter.firstMessage && (
+                  {activeDrawnCharacter.firstMessage && (
                     <div className="bg-white/95 rounded-xl p-3 border border-rose-200/80 space-y-1 shadow-2xs">
                       <div className="flex items-center justify-between text-[10px] font-bold text-rose-600 uppercase tracking-wider">
                         <span className="flex items-center gap-1">
@@ -618,7 +756,7 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleCopyGreeting(drawnCharacter.firstMessage)}
+                          onClick={() => handleCopyGreeting(activeDrawnCharacter.firstMessage)}
                           className="hover:text-rose-800 flex items-center gap-1 text-[10px] font-semibold cursor-pointer lowercase"
                         >
                           <Copy className="w-3 h-3" />
@@ -626,7 +764,7 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
                         </button>
                       </div>
                       <p className="text-xs text-slate-700 italic leading-relaxed">
-                        &ldquo;{drawnCharacter.firstMessage}&rdquo;
+                        &ldquo;{activeDrawnCharacter.firstMessage}&rdquo;
                       </p>
                     </div>
                   )}
@@ -645,30 +783,30 @@ export const LuckyCandyPage: React.FC<LuckyCandyPageProps> = ({
                 </button>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {drawnCharacter.characterLink && (
+                  {activeDrawnCharacter.characterLink && (
                     <a
-                      href={drawnCharacter.characterLink}
+                      href={activeDrawnCharacter.characterLink}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={() => {
                         sound.playChime();
-                        if (drawnCharacter.id !== 'wyn_special_candy_fortune') {
-                          onTasted?.(drawnCharacter.id);
+                        if (activeDrawnCharacter.id !== 'wyn_special_candy_fortune') {
+                          onTasted?.(activeDrawnCharacter.id);
                         }
                       }}
                       className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 rounded-xl shadow-xs transition-all cursor-pointer"
                     >
                       <ExternalLink className="w-3.5 h-3.5 stroke-[2.5]" />
-                      <span>Mở kẹo thưởng thức ({drawnCharacter.tastedCount || 0})</span>
+                      <span>Mở kẹo thưởng thức ({activeDrawnCharacter.tastedCount || 0})</span>
                     </a>
                   )}
 
-                  {drawnCharacter.id !== 'wyn_special_candy_fortune' ? (
+                  {activeDrawnCharacter.id !== 'wyn_special_candy_fortune' ? (
                     <button
                       type="button"
                       onClick={() => {
                         handleResetDraw();
-                        onSelectCharacter(drawnCharacter);
+                        onSelectCharacter(activeDrawnCharacter);
                       }}
                       className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-[#b53457] bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all cursor-pointer"
                     >

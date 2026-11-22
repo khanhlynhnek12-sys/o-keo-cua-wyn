@@ -161,14 +161,15 @@ export const CharacterDetailModal: React.FC<CharacterDetailModalProps> = ({
                   sound.playHeart();
                   onToggleFavorite(character.id);
                 }}
-                className={`p-2 rounded-xl transition-all ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all ${
                   isFavorite
-                    ? 'text-rose-500 bg-rose-50 dark:bg-rose-950/40'
-                    : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800'
+                    ? 'text-rose-500 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-900'
+                    : 'text-slate-500 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 border border-transparent'
                 }`}
-                title={isFavorite ? 'Bỏ yêu thích' : 'Thêm yêu thích'}
+                title={`${isFavorite ? 'Bỏ yêu thích' : 'Thêm yêu thích'} (${character.likesCount || 0} lượt tim)`}
               >
                 <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+                <span className="text-xs font-bold tabular-nums">{character.likesCount || 0}</span>
               </button>
 
               {isAdmin && (

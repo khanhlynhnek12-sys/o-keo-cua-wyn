@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Sparkles, Check, Image as ImageIcon, Plus } from 'lucide-react';
+import { X, Sparkles, Check, Image as ImageIcon, Plus, Upload } from 'lucide-react';
 import { Character } from '../types/character';
 import { PRESET_GENRES } from '../data/genres';
 import { saveCustomGenresToFirestore, subscribeCustomGenres } from '../firebase/services';
+import { compressMediaFile } from '../utils/imageCompressor';
 import { sound } from '../utils/audio';
 
 interface CharacterFormModalProps {
@@ -15,10 +16,10 @@ interface CharacterFormModalProps {
 }
 
 const PRESET_AVATARS = [
-  { label: 'Liên Vũ (Dâu tây)', path: '/src/assets/images/wyn_char_lian_1793720549992.jpg' },
-  { label: 'Dạ Thần (Việt quất)', path: '/src/assets/images/wyn_char_kaelen_1793720550098.jpg' },
-  { label: 'Lâm Miêu (Bạc hà)', path: '/src/assets/images/wyn_char_mio_1793720551324.jpg' },
-  { label: 'Bạch Dạ Dạ (Kẹo bông)', path: '/src/assets/images/wyn_char_sylvie_1793720552627.jpg' },
+  { label: 'Liên Vũ (Dâu tây)', path: '/images/wyn_char_lian_1793720549992.jpg' },
+  { label: 'Dạ Thần (Việt quất)', path: '/images/wyn_char_kaelen_1793720550098.jpg' },
+  { label: 'Lâm Miêu (Bạc hà)', path: '/images/wyn_char_mio_1793720551324.jpg' },
+  { label: 'Bạch Dạ Dạ (Kẹo bông)', path: '/images/wyn_char_sylvie_1793720552627.jpg' },
 ];
 
 export const CharacterFormModal: React.FC<CharacterFormModalProps> = ({
@@ -85,7 +86,7 @@ export const CharacterFormModal: React.FC<CharacterFormModalProps> = ({
       setBackstory('');
       setFirstMessage('');
       setCharacterLink('https://character.ai/');
-      setAvatar('/src/assets/images/wyn_char_lian_1793720549992.jpg');
+      setAvatar('/images/wyn_char_lian_1793720549992.jpg');
       setTraits('Dịu dàng, Đáng yêu, Ngọt ngào');
     }
   }, [initialData, defaultGenre, isOpen]);
@@ -387,13 +388,36 @@ export const CharacterFormModal: React.FC<CharacterFormModalProps> = ({
                   </button>
                 ))}
               </div>
-              <input
-                type="text"
-                value={avatar}
-                onChange={(e) => setAvatar(e.target.value)}
-                placeholder="Hoặc dán đường dẫn ảnh tùy chỉnh..."
-                className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-rose-400 focus:outline-none text-xs text-slate-900 dark:text-slate-100"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={avatar}
+                  onChange={(e) => setAvatar(e.target.value)}
+                  placeholder="Hoặc dán đường dẫn ảnh tùy chỉnh..."
+                  className="flex-1 px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-rose-400 focus:outline-none text-xs text-slate-900 dark:text-slate-100"
+                />
+                <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold cursor-pointer transition-colors shrink-0">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Tải ảnh</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const res = await compressMediaFile(file, 600, 600, 0.8);
+                        setAvatar(res.dataUrl);
+                        sound.playSuccess();
+                      } catch {
+                        //
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
             </div>
 
             {/* Backstory */}

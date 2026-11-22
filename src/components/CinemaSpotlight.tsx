@@ -130,14 +130,15 @@ export const CinemaSpotlight: React.FC<CinemaSpotlightProps> = ({
                     sound.playHeart();
                     onToggleFavorite(current.id);
                   }}
-                  className={`p-2.5 rounded-full backdrop-blur-md transition-all ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full backdrop-blur-md transition-all ${
                     isFavorite
                       ? 'bg-rose-500 text-white shadow-md'
-                      : 'bg-black/40 text-white hover:bg-black/60'
+                      : 'bg-black/45 text-white hover:bg-black/65'
                   }`}
-                  title={isFavorite ? 'Bỏ thích' : 'Yêu thích'}
+                  title={`${isFavorite ? 'Bỏ thích' : 'Yêu thích'} (${current.likesCount || 0} lượt tim)`}
                 >
                   <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+                  <span className="text-xs font-bold tabular-nums">{current.likesCount || 0}</span>
                 </button>
               </div>
 

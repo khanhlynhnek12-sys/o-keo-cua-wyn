@@ -39,7 +39,7 @@ import {
   saveCustomGenresToFirestore,
   subscribeCustomGenres,
   saveWynAvatarToFirestore,
-  subscribeWynAvatar,
+  DEFAULT_WYN_AVATAR,
 } from '../firebase/services';
 import { WebBackgroundConfig, DEFAULT_WEB_BG, OverlayTint } from '../types/settings';
 import { compressMediaFile, formatBytes } from '../utils/imageCompressor';
@@ -59,6 +59,8 @@ interface AdminModalProps {
   onToast: (msg: string) => void;
   siteLogo?: string | null;
   onUpdateLogo?: (logo: string | null) => void;
+  wynAvatar?: string;
+  onUpdateWynAvatar?: (avatar: string) => void;
   webBg?: WebBackgroundConfig;
   onUpdateWebBg?: (bg: WebBackgroundConfig, rawBlob?: Blob) => void;
   floatingConfig?: any;
@@ -71,10 +73,10 @@ interface AdminModalProps {
 type AdminTab = 'create' | 'announcement' | 'background' | 'avatar' | 'polaroid' | 'manage';
 
 const PRESET_AVATARS = [
-  { label: 'Liên Vũ (Dâu tây)', path: '/src/assets/images/wyn_char_lian_1793720549992.jpg' },
-  { label: 'Dạ Thần (Việt quất)', path: '/src/assets/images/wyn_char_kaelen_1793720550098.jpg' },
-  { label: 'Lâm Miêu (Bạc hà)', path: '/src/assets/images/wyn_char_mio_1793720551324.jpg' },
-  { label: 'Bạch Dạ Dạ (Kẹo bông)', path: '/src/assets/images/wyn_char_sylvie_1793720552627.jpg' },
+  { label: 'Liên Vũ (Dâu tây)', path: '/images/wyn_char_lian_1793720549992.jpg' },
+  { label: 'Dạ Thần (Việt quất)', path: '/images/wyn_char_kaelen_1793720550098.jpg' },
+  { label: 'Lâm Miêu (Bạc hà)', path: '/images/wyn_char_mio_1793720551324.jpg' },
+  { label: 'Bạch Dạ Dạ (Kẹo bông)', path: '/images/wyn_char_sylvie_1793720552627.jpg' },
   { label: 'Tiểu Đường (Mật đào)', path: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80' },
   { label: 'Hàn Dạ (Sô-cô-la)', path: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80' },
 ];
@@ -120,6 +122,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onToast,
   siteLogo,
   onUpdateLogo,
+  wynAvatar: wynAvatarProp,
+  onUpdateWynAvatar,
   webBg,
   onUpdateWebBg,
   floatingConfig,
@@ -360,18 +364,22 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   // Avatar & Logo Management State (matching image_a60a77eb.png)
   const [wynAvatar, setWynAvatar] = useState<string>(() => {
+    if (wynAvatarProp) return wynAvatarProp;
     try {
-      return (
-        localStorage.getItem('wyn_admin_avatar') ||
-        '/src/assets/images/wyn_char_lian_1793720549992.jpg'
-      );
+      return localStorage.getItem('wyn_admin_avatar') || DEFAULT_WYN_AVATAR;
     } catch {
-      return '/src/assets/images/wyn_char_lian_1793720549992.jpg';
+      return DEFAULT_WYN_AVATAR;
     }
   });
   const [wynAvatarUrlInput, setWynAvatarUrlInput] = useState('');
   const [isCompressingWynAvatar, setIsCompressingWynAvatar] = useState(false);
   const wynAvatarFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (wynAvatarProp) {
+      setWynAvatar(wynAvatarProp);
+    }
+  }, [wynAvatarProp]);
 
   const [currentSiteLogo, setCurrentSiteLogo] = useState<string | null>(siteLogo || null);
   const [logoUrlInput, setLogoUrlInput] = useState('');
@@ -400,20 +408,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       return 'Wyn 🌸 (Chủ tiệm kẹo)';
     }
   });
-
-  useEffect(() => {
-    const unsubscribe = subscribeWynAvatar((remoteAvatar) => {
-      if (remoteAvatar) {
-        setWynAvatar(remoteAvatar);
-        try {
-          localStorage.setItem('wyn_admin_avatar', remoteAvatar);
-        } catch {
-          //
-        }
-      }
-    });
-    return () => unsubscribe();
-  }, []);
 
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -570,13 +564,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!file) return;
     setIsCompressingWynAvatar(true);
     try {
-      const result = await compressMediaFile(file, 400, 400, 0.88);
+      const result = await compressMediaFile(file, 400, 400, 0.85);
       setWynAvatar(result.dataUrl);
-      saveWynAvatarToFirestore(result.dataUrl).catch(() => {});
-      try {
-        localStorage.setItem('wyn_admin_avatar', result.dataUrl);
-      } catch {
-        //
+      if (onUpdateWynAvatar) {
+        onUpdateWynAvatar(result.dataUrl);
+      } else {
+        saveWynAvatarToFirestore(result.dataUrl).catch(() => {});
+        try {
+          localStorage.setItem('wyn_admin_avatar', result.dataUrl);
+        } catch {
+          //
+        }
       }
       sound.playSuccess();
       onToast('Đã cập nhật ảnh đại diện của nàng Wyn thành công (Đồng bộ Cloud)! 🎀');
@@ -594,11 +592,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
     const cleanUrl = wynAvatarUrlInput.trim();
     setWynAvatar(cleanUrl);
-    saveWynAvatarToFirestore(cleanUrl).catch(() => {});
-    try {
-      localStorage.setItem('wyn_admin_avatar', cleanUrl);
-    } catch {
-      //
+    if (onUpdateWynAvatar) {
+      onUpdateWynAvatar(cleanUrl);
+    } else {
+      saveWynAvatarToFirestore(cleanUrl).catch(() => {});
+      try {
+        localStorage.setItem('wyn_admin_avatar', cleanUrl);
+      } catch {
+        //
+      }
     }
     setWynAvatarUrlInput('');
     sound.playSuccess();
@@ -1826,20 +1828,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-12 h-12 rounded-xl overflow-hidden bg-rose-100 border border-rose-200 shrink-0 flex items-center justify-center shadow-xs">
                           {bgUrl ? (
-                            <img src={bgUrl} alt="Nền hiện tại" className="w-full h-full object-cover" />
+                            bgUrl.startsWith('blob:') || bgMode === 'video' ? (
+                              <Film className="w-5 h-5 text-rose-500" />
+                            ) : (
+                              <img src={bgUrl} alt="Nền hiện tại" className="w-full h-full object-cover" />
+                            )
                           ) : (
                             <span className="text-xl">🌸</span>
                           )}
                         </div>
                         <div className="space-y-0.5 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full animate-pulse shrink-0 ${
+                                bgUrl.startsWith('blob:') ? 'bg-amber-500' : 'bg-emerald-500'
+                              }`}
+                            />
                             <span className="text-xs font-bold text-slate-800 truncate">
-                              {bgUrl ? 'Đang đồng bộ trực tiếp trên toàn bộ web' : 'Đang dùng nền hồng pastel mặc định'}
+                              {bgUrl.startsWith('blob:')
+                                ? 'Đã lưu cục bộ (chỉ thiết bị này — dùng URL để đồng bộ Cloud)'
+                                : bgUrl
+                                ? 'Đang đồng bộ trực tiếp Firebase Cloud trên toàn web'
+                                : 'Đang dùng nền hồng pastel mặc định'}
                             </span>
                           </div>
                           <p className="text-[11px] text-[#b52d55] truncate">
-                            {bgSelectedFileName || (bgUrl ? bgUrl : 'Màu nền thuần dịu mắt')}
+                            {bgCompressionBadge || bgSelectedFileName || (bgUrl ? bgUrl : 'Màu nền thuần dịu mắt')}
                           </p>
                         </div>
                       </div>

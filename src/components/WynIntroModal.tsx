@@ -6,9 +6,14 @@ import { sound } from '../utils/audio';
 interface WynIntroModalProps {
   isOpen: boolean;
   onClose: () => void;
+  wynAvatar?: string;
 }
 
-export const WynIntroModal: React.FC<WynIntroModalProps> = ({ isOpen, onClose }) => {
+export const WynIntroModal: React.FC<WynIntroModalProps> = ({
+  isOpen,
+  onClose,
+  wynAvatar,
+}) => {
   if (!isOpen) return null;
 
   return (
@@ -36,8 +41,19 @@ export const WynIntroModal: React.FC<WynIntroModalProps> = ({ isOpen, onClose })
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-rose-100 pb-3">
-            <div className="flex items-center gap-2 text-rose-600">
-              <Candy className="w-5 h-5 fill-rose-200" />
+            <div className="flex items-center gap-3 text-rose-600">
+              {wynAvatar ? (
+                <img
+                  src={wynAvatar}
+                  alt="Avatar của Wyn"
+                  onError={(e) => {
+                    e.currentTarget.src = '/images/wyn_char_lian_1793720549992.jpg';
+                  }}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-rose-300 shadow-xs shrink-0"
+                />
+              ) : (
+                <Candy className="w-5 h-5 fill-rose-200" />
+              )}
               <h2 className="font-script text-2xl font-bold text-[#b53457]">
                 Lời thì thầm từ Wyn
               </h2>

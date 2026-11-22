@@ -10,6 +10,7 @@ export interface WebBackgroundConfig {
   loop: boolean;
   name?: string;
   fileSizeText?: string;
+  updatedAt?: string;
 }
 
 export const DEFAULT_WEB_BG: WebBackgroundConfig = {

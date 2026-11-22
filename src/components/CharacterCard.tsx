@@ -107,14 +107,15 @@ export const CharacterCard: React.FC<CharacterCardProps> = ({
               sound.playHeart();
               onToggleFavorite(character.id, e);
             }}
-            className={`p-2 rounded-full backdrop-blur-md transition-all shadow-sm ${
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full backdrop-blur-md transition-all shadow-sm ${
               isFavorite
                 ? 'bg-rose-500 text-white shadow-rose-500/40'
-                : 'bg-black/35 hover:bg-black/55 text-white'
+                : 'bg-black/40 hover:bg-black/60 text-white'
             }`}
-            title={isFavorite ? 'Bỏ yêu thích' : 'Thêm vào yêu thích'}
+            title={`${isFavorite ? 'Bỏ yêu thích' : 'Thêm vào yêu thích'} (${character.likesCount || 0} lượt tim)`}
           >
             <Heart className={`w-3.5 h-3.5 ${isFavorite ? 'fill-current' : ''}`} />
+            <span className="text-[11px] font-bold tabular-nums">{character.likesCount || 0}</span>
           </button>
         </div>
 

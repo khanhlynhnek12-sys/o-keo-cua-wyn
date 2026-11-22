@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, Heart, Sparkles, MessageSquareHeart } from 'lucide-react';
 import { sound } from '../utils/audio';
+import { saveFeedbackToFirestore } from '../firebase/services';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -17,14 +18,37 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
   const [senderName, setSenderName] = useState('');
   const [message, setMessage] = useState('');
   const [candySticker, setCandySticker] = useState('🍓 Kẹo dâu ngọt ngào');
+  const [isSending, setIsSending] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || isSending) return;
 
+    setIsSending(true);
     sound.playSuccess();
+    const dateStr = new Date().toLocaleDateString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+    });
+
+    try {
+      await saveFeedbackToFirestore({
+        characterName: 'Toàn bộ ổ kẹo của Wyn',
+        sender: senderName.trim() || 'Một người ghé thăm ẩn danh',
+        sweetness: 5,
+        reviewText: message.trim(),
+        isPublic: true,
+        sticker: candySticker,
+        date: dateStr,
+      });
+    } catch (err) {
+      console.warn('Could not save feedback modal message to Firestore:', err);
+    }
+
     try {
       const existing = JSON.parse(localStorage.getItem('wyn_feedback_messages') || '[]');
       existing.unshift({
@@ -32,16 +56,17 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
         sender: senderName.trim() || 'Một người ghé thăm ẩn danh',
         message: message.trim(),
         sticker: candySticker,
-        date: new Date().toLocaleDateString('vi-VN'),
+        date: dateStr,
       });
       localStorage.setItem('wyn_feedback_messages', JSON.stringify(existing));
     } catch {
       //
     }
 
-    onSendSuccess('Lời nhắn ngọt ngào của bạn đã được gửi đến Wyn thành công!');
+    onSendSuccess('Lời nhắn ngọt ngào của bạn đã được gửi & đồng bộ tới Wyn thành công!');
     setMessage('');
     setSenderName('');
+    setIsSending(false);
     onClose();
   };
 

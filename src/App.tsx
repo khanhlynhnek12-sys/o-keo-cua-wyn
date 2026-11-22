@@ -48,6 +48,10 @@ import {
   loadPersistedFloatingConfig,
   persistHeroPolaroidPhoto,
   loadPersistedHeroPolaroidPhoto,
+  persistWynAvatar,
+  loadPersistedWynAvatar,
+  persistSiteLogo,
+  loadPersistedSiteLogo,
 } from './utils/persistentStorage';
 import {
   subscribeCharacters,
@@ -60,6 +64,11 @@ import {
   saveHeroPolaroidPhotoToFirestore,
   subscribeSiteLogo,
   saveSiteLogoToFirestore,
+  subscribeWynAvatar,
+  saveWynAvatarToFirestore,
+  toggleCharacterLikeCount,
+  DEFAULT_WYN_AVATAR,
+  DEFAULT_SITE_LOGO,
 } from './firebase/services';
 
 const STORAGE_KEY = 'wyn_candy_nest_characters_v4';
@@ -129,15 +138,20 @@ export default function App() {
     }
   });
 
-  // Website Logo & Background customizable by Wyn in AdminModal
+  // Website Logo, Wyn Avatar & Background customizable by Wyn in AdminModal
   const [siteLogo, setSiteLogo] = useState<string | null>(() => {
     try {
-      return (
-        localStorage.getItem('wyn_site_logo') ||
-        'https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=300&q=80'
-      );
+      return localStorage.getItem('wyn_site_logo') || DEFAULT_SITE_LOGO;
     } catch {
-      return 'https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=300&q=80';
+      return DEFAULT_SITE_LOGO;
+    }
+  });
+
+  const [wynAvatar, setWynAvatar] = useState<string>(() => {
+    try {
+      return localStorage.getItem('wyn_admin_avatar') || DEFAULT_WYN_AVATAR;
+    } catch {
+      return DEFAULT_WYN_AVATAR;
     }
   });
 
@@ -169,40 +183,76 @@ export default function App() {
     return DEFAULT_WEB_BG;
   });
 
+  // Refs to prevent async IndexedDB hydration from overwriting newer Firebase remote updates
+  const remoteBgReceivedRef = useRef(false);
+  const remotePolaroidReceivedRef = useRef(false);
+  const remoteLogoReceivedRef = useRef(false);
+  const remoteWynAvatarReceivedRef = useRef(false);
+  const bgSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleUpdateSiteLogo = (logo: string | null) => {
     setSiteLogo(logo);
-    saveSiteLogoToFirestore(logo).catch(() => {});
-    try {
-      if (logo) {
-        localStorage.setItem('wyn_site_logo', logo);
-      } else {
-        localStorage.removeItem('wyn_site_logo');
-      }
-    } catch {
-      //
-    }
+    persistSiteLogo(logo);
+    saveSiteLogoToFirestore(logo)
+      .then((res) => {
+        if (!res.synced && res.reason === 'oversized_media') {
+          showToast('Logo quá lớn để đồng bộ Cloud (>850KB), đã lưu trên thiết bị này.');
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not save site logo to Firebase:', err);
+      });
+  };
+
+  const handleUpdateWynAvatar = (avatar: string) => {
+    setWynAvatar(avatar);
+    persistWynAvatar(avatar);
+    saveWynAvatarToFirestore(avatar)
+      .then((res) => {
+        if (!res.synced && res.reason === 'oversized_media') {
+          showToast('Ảnh đại diện quá lớn để đồng bộ Cloud (>850KB), đã lưu trên thiết bị này.');
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not save Wyn avatar to Firebase:', err);
+      });
   };
 
   const handleUpdateWebBg = (bg: WebBackgroundConfig, rawBlob?: Blob) => {
     setWebBg(bg);
-    // 1. Save to Firebase Firestore for cloud persistence across all users & devices
-    saveSiteBackgroundToFirestore(bg).catch((err) => {
-      console.warn('Could not save background to Firebase:', err);
-    });
-    // 2. Persist locally to IndexedDB and localStorage (handles large media with no 5MB limit and stores raw Blobs for reload)
+    // 1. Persist locally to IndexedDB and localStorage immediately
     persistSiteBg(bg, rawBlob);
     try {
-      // 3. Broadcast to other tabs & windows via BroadcastChannel
+      // 2. Broadcast to other tabs & windows via BroadcastChannel
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const channel = new BroadcastChannel('wyn_site_sync_channel');
         channel.postMessage({ type: 'UPDATE_BG', payload: bg });
         channel.close();
       }
-      // 4. Dispatch in-window event for instant local component sync
+      // 3. Dispatch in-window event for instant local component sync
       window.dispatchEvent(new CustomEvent('wyn_site_bg_sync', { detail: bg }));
     } catch {
       //
     }
+
+    // 4. Sync to Firebase Firestore (debounced slightly to avoid flooding writes on slider/URL typing)
+    if (bgSaveTimerRef.current) {
+      clearTimeout(bgSaveTimerRef.current);
+    }
+    const delay = bg.url && bg.url.startsWith('data:') ? 50 : 350;
+    bgSaveTimerRef.current = setTimeout(() => {
+      saveSiteBackgroundToFirestore(bg)
+        .then((res) => {
+          if (!res.synced && res.reason === 'local_video_blob') {
+            showToast('Video từ máy đã được lưu trên thiết bị này. Dùng URL video hoặc YouTube để đồng bộ Cloud cho mọi người!');
+          } else if (!res.synced && res.reason === 'oversized_media') {
+            showToast('Ảnh GIF nền quá lớn (>850KB) để đồng bộ Cloud, đã lưu cục bộ trên máy này.');
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not save background to Firebase:', err);
+        });
+    }, delay);
   };
 
   // Real-time synchronization listener with Firebase Firestore, BroadcastChannel, and persistent offline loader
@@ -212,6 +262,10 @@ export default function App() {
       (remoteChars) => {
         if (Array.isArray(remoteChars) && remoteChars.length > 0) {
           setCharacters(remoteChars);
+          setSelectedCharacter((prev) => {
+            if (!prev) return null;
+            return remoteChars.find((c) => c.id === prev.id) || prev;
+          });
         }
       },
       (err) => {
@@ -222,8 +276,12 @@ export default function App() {
     // 2. Real-time Firebase Firestore subscription for shared background
     const unsubscribeBg = subscribeSiteBackground(
       (remoteBg) => {
-        // ONLY accept remote background if it has a real non-empty URL
-        if (remoteBg && remoteBg.url && remoteBg.url.trim().length > 0 && !remoteBg.url.startsWith('blob:')) {
+        remoteBgReceivedRef.current = true;
+        if (
+          remoteBg &&
+          ((remoteBg.url && remoteBg.url.trim().length > 0 && !remoteBg.url.startsWith('blob:')) ||
+            remoteBg.type === 'none')
+        ) {
           setWebBg(remoteBg);
           persistSiteBg(remoteBg);
         }
@@ -233,9 +291,10 @@ export default function App() {
       }
     );
 
-    // 3. Load persisted background from IndexedDB on startup (guarantees videos/large images never get lost on reload)
+    // 3. Load persisted background from IndexedDB on startup only if Firestore hasn't arrived yet (or for local video blobs)
     loadPersistedSiteBg().then((savedBg) => {
-      if (savedBg && savedBg.url) {
+      if (!savedBg || !savedBg.url) return;
+      if (!remoteBgReceivedRef.current || savedBg.url.startsWith('blob:')) {
         setWebBg(savedBg);
       }
     });
@@ -247,32 +306,47 @@ export default function App() {
       }
     });
 
-    // 5. Load persisted hero polaroid photo
+    // 5. Load persisted hero polaroid photo if Firestore hasn't arrived yet
     loadPersistedHeroPolaroidPhoto().then((storedPhoto) => {
-      if (storedPhoto) {
+      if (storedPhoto && !remotePolaroidReceivedRef.current) {
         setHeroPolaroidPhoto(storedPhoto);
       }
     });
 
     // 6. Subscribe in real-time to Hero Polaroid Photo from Cloud Firestore
     const unsubscribePolaroid = subscribeHeroPolaroidPhoto((remotePhoto) => {
+      remotePolaroidReceivedRef.current = true;
       if (remotePhoto && remotePhoto.trim().length > 0) {
         setHeroPolaroidPhoto(remotePhoto);
         persistHeroPolaroidPhoto(remotePhoto);
       }
     });
 
-    // 7. Subscribe in real-time to Site Logo from Cloud Firestore
+    // 7. Load persisted Site Logo if Firestore hasn't arrived yet, then subscribe in real-time
+    loadPersistedSiteLogo().then((storedLogo) => {
+      if (storedLogo !== undefined && !remoteLogoReceivedRef.current) {
+        setSiteLogo(storedLogo);
+      }
+    });
+
     const unsubscribeLogo = subscribeSiteLogo((remoteLogo) => {
+      remoteLogoReceivedRef.current = true;
       setSiteLogo(remoteLogo);
-      try {
-        if (remoteLogo) {
-          localStorage.setItem('wyn_site_logo', remoteLogo);
-        } else {
-          localStorage.removeItem('wyn_site_logo');
-        }
-      } catch {
-        //
+      persistSiteLogo(remoteLogo);
+    });
+
+    // 8. Load persisted Wyn Avatar if Firestore hasn't arrived yet, then subscribe in real-time
+    loadPersistedWynAvatar().then((storedAvatar) => {
+      if (storedAvatar && !remoteWynAvatarReceivedRef.current) {
+        setWynAvatar(storedAvatar);
+      }
+    });
+
+    const unsubscribeWynAvatar = subscribeWynAvatar((remoteAvatar) => {
+      remoteWynAvatarReceivedRef.current = true;
+      if (remoteAvatar && remoteAvatar.trim().length > 0) {
+        setWynAvatar(remoteAvatar);
+        persistWynAvatar(remoteAvatar);
       }
     });
 
@@ -316,6 +390,8 @@ export default function App() {
       unsubscribeBg();
       unsubscribePolaroid();
       unsubscribeLogo();
+      unsubscribeWynAvatar();
+      if (bgSaveTimerRef.current) clearTimeout(bgSaveTimerRef.current);
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('wyn_site_bg_sync', handleCustomSync);
       if (bc) bc.close();
@@ -349,7 +425,15 @@ export default function App() {
   const handleUpdateHeroPolaroidPhoto = (photo: string) => {
     setHeroPolaroidPhoto(photo);
     persistHeroPolaroidPhoto(photo);
-    saveHeroPolaroidPhotoToFirestore(photo).catch(() => {});
+    saveHeroPolaroidPhotoToFirestore(photo)
+      .then((res) => {
+        if (!res.synced && res.reason === 'oversized_media') {
+          showToast('Ảnh Polaroid quá lớn (>850KB) để đồng bộ Cloud, đã lưu cục bộ trên máy này.');
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not save hero polaroid photo to Firebase:', err);
+      });
   };
 
   // Cinema Index
@@ -441,16 +525,40 @@ export default function App() {
   // Handlers
   const handleToggleFavorite = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const wasFavorite = favorites.has(id);
+    const delta: 1 | -1 = wasFavorite ? -1 : 1;
+    const targetChar = characters.find((c) => c.id === id);
+
     setFavorites((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
+      if (wasFavorite) {
         next.delete(id);
         showToast('Đã bỏ nhân vật khỏi danh sách yêu thích');
       } else {
         next.add(id);
-        showToast('Đã thêm nhân vật vào danh sách yêu thích!');
+        showToast('Đã thả tim yêu thích nhân vật (Đồng bộ Cloud)! 💖');
       }
       return next;
+    });
+
+    setCharacters((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? { ...c, likesCount: Math.max(0, (c.likesCount || 0) + delta) }
+          : c
+      )
+    );
+
+    if (selectedCharacter && selectedCharacter.id === id) {
+      setSelectedCharacter((prev) =>
+        prev
+          ? { ...prev, likesCount: Math.max(0, (prev.likesCount || 0) + delta) }
+          : null
+      );
+    }
+
+    toggleCharacterLikeCount(id, delta, targetChar).catch((err) => {
+      console.warn('Could not sync likesCount to Firestore:', err);
     });
   };
 
@@ -1023,6 +1131,7 @@ export default function App() {
             }}
             onToast={showToast}
             isAdmin={isAdmin}
+            wynAvatar={wynAvatar}
           />
         )}
 
@@ -1113,6 +1222,7 @@ export default function App() {
       <WynIntroModal
         isOpen={isIntroModalOpen}
         onClose={() => setIsIntroModalOpen(false)}
+        wynAvatar={wynAvatar}
       />
 
       {/* Admin Modal protected with Passcode 9512 matching image_f80f32f1.png */}
@@ -1130,6 +1240,8 @@ export default function App() {
         onToast={showToast}
         siteLogo={siteLogo}
         onUpdateLogo={handleUpdateSiteLogo}
+        wynAvatar={wynAvatar}
+        onUpdateWynAvatar={handleUpdateWynAvatar}
         webBg={webBg}
         onUpdateWebBg={handleUpdateWebBg}
         floatingConfig={floatingConfig}

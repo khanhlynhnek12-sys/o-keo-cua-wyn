@@ -22,6 +22,7 @@ export interface Character {
   createdAt?: string;
   updatedAt?: string;
   tastedCount?: number; // Đã có ... nàng thưởng thức kẹo
+  likesCount?: number; // Số lượt tim yêu thích đồng bộ thời gian thực
 }
 
 export type ViewMode = 'grid' | 'cinema' | 'compact';

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MessageSquareHeart,
   Send,
@@ -10,36 +10,27 @@ import {
   Trash2,
   Lightbulb,
   CheckCircle2,
+  Lock,
 } from 'lucide-react';
 import { Character } from '../types/character';
 import { sound } from '../utils/audio';
-
-interface CharacterFeedback {
-  id: number;
-  characterName: string;
-  sender: string;
-  sweetness: number;
-  quoteImpression: string;
-  reviewText: string;
-  isPublic: boolean;
-  date: string;
-}
-
-interface IdeaSubmission {
-  id: number;
-  ideaTitle: string;
-  sender: string;
-  characterSetup: string;
-  firstWhisper: string;
-  backstory: string;
-  date: string;
-}
+import {
+  FeedbackEntry,
+  IdeaEntry,
+  subscribeFeedbacks,
+  saveFeedbackToFirestore,
+  deleteFeedbackFromFirestore,
+  subscribeIdeas,
+  saveIdeaToFirestore,
+  deleteIdeaFromFirestore,
+} from '../firebase/services';
 
 interface FeedbackPageProps {
   characters?: Character[];
   onBackToHome: () => void;
   onToast: (msg: string) => void;
   isAdmin: boolean;
+  wynAvatar?: string;
 }
 
 export const FeedbackPage: React.FC<FeedbackPageProps> = ({
@@ -47,6 +38,7 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
   onBackToHome,
   onToast,
   isAdmin,
+  wynAvatar,
 }) => {
   // Tab state: 'review' (Cảm nhận nhân vật) | 'idea' (Gửi Idea kẹo mới)
   const [activeTab, setActiveTab] = useState<'review' | 'idea'>('review');
@@ -68,8 +60,8 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
   const [firstWhisper, setFirstWhisper] = useState('');
   const [backstory, setBackstory] = useState('');
 
-  // Feedbacks database - defaults to empty (0 letters) as requested
-  const [feedbacks, setFeedbacks] = useState<CharacterFeedback[]>(() => {
+  // Feedbacks database - synced in real-time with Firestore
+  const [feedbacks, setFeedbacks] = useState<FeedbackEntry[]>(() => {
     try {
       const saved = localStorage.getItem('wyn_char_reviews_v2');
       if (saved) return JSON.parse(saved);
@@ -79,8 +71,8 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
     return [];
   });
 
-  // Ideas database - defaults to empty
-  const [ideas, setIdeas] = useState<IdeaSubmission[]>(() => {
+  // Ideas database - synced in real-time with Firestore
+  const [ideas, setIdeas] = useState<IdeaEntry[]>(() => {
     try {
       const saved = localStorage.getItem('wyn_idea_submissions_v2');
       if (saved) return JSON.parse(saved);
@@ -89,6 +81,44 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
     }
     return [];
   });
+
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [isSubmittingIdea, setIsSubmittingIdea] = useState(false);
+
+  useEffect(() => {
+    const unsubFeedbacks = subscribeFeedbacks(
+      (remoteItems) => {
+        setFeedbacks(remoteItems);
+        try {
+          localStorage.setItem('wyn_char_reviews_v2', JSON.stringify(remoteItems));
+        } catch {
+          //
+        }
+      },
+      (err) => {
+        console.warn('Feedbacks real-time fallback:', err);
+      }
+    );
+
+    const unsubIdeas = subscribeIdeas(
+      (remoteIdeas) => {
+        setIdeas(remoteIdeas);
+        try {
+          localStorage.setItem('wyn_idea_submissions_v2', JSON.stringify(remoteIdeas));
+        } catch {
+          //
+        }
+      },
+      (err) => {
+        console.warn('Ideas real-time fallback:', err);
+      }
+    );
+
+    return () => {
+      unsubFeedbacks();
+      unsubIdeas();
+    };
+  }, []);
 
   const getRatingLabel = (num: number) => {
     switch (num) {
@@ -106,46 +136,48 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingReview) return;
     if (!reviewMessage.trim()) {
       onToast('Nàng hãy viết lời cảm nhận chi tiết trước khi gửi nhé!');
       return;
     }
 
+    setIsSubmittingReview(true);
     sound.playSuccess();
-    const newEntry: CharacterFeedback = {
-      id: Date.now(),
-      characterName: targetCharacter || 'Toàn bộ ổ kẹo của Wyn',
-      sender: reviewerName.trim() || 'Một nàng độc giả mê kẹo',
-      sweetness: sweetnessRating,
-      quoteImpression: quoteImpression.trim(),
-      reviewText: reviewMessage.trim(),
-      isPublic: isPublicReview,
-      date: new Date().toLocaleDateString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        day: '2-digit',
-        month: '2-digit',
-      }),
-    };
+    const dateStr = new Date().toLocaleDateString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+    });
 
-    const updated = [newEntry, ...feedbacks];
-    setFeedbacks(updated);
     try {
-      localStorage.setItem('wyn_char_reviews_v2', JSON.stringify(updated));
-    } catch {
-      //
+      await saveFeedbackToFirestore({
+        characterName: targetCharacter || 'Toàn bộ ổ kẹo của Wyn',
+        sender: reviewerName.trim() || 'Một nàng độc giả mê kẹo',
+        sweetness: sweetnessRating,
+        quoteImpression: quoteImpression.trim(),
+        reviewText: reviewMessage.trim(),
+        isPublic: isPublicReview,
+        date: dateStr,
+      });
+      onToast('Lời cảm nhận đã được gửi và đồng bộ trực tuyến tới Wyn thành công! 💕');
+      setReviewMessage('');
+      setQuoteImpression('');
+      setReviewerName('');
+    } catch (err) {
+      console.warn('Could not sync feedback to Firestore:', err);
+      onToast('Không thể đồng bộ lên Cloud lúc này, vui lòng thử lại!');
+    } finally {
+      setIsSubmittingReview(false);
     }
-
-    onToast('Lời cảm nhận ngọt ngào của bạn đã gửi đến Wyn thành công! 💕');
-    setReviewMessage('');
-    setQuoteImpression('');
-    setReviewerName('');
   };
 
-  const handleIdeaSubmit = (e: React.FormEvent) => {
+  const handleIdeaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingIdea) return;
     if (!ideaTitle.trim()) {
       onToast('Nàng hãy điền Tên ý tưởng / Vị kẹo đề xuất nhé!');
       return;
@@ -155,49 +187,61 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
       return;
     }
 
+    setIsSubmittingIdea(true);
     sound.playSuccess();
-    const newIdea: IdeaSubmission = {
-      id: Date.now(),
-      ideaTitle: ideaTitle.trim(),
-      sender: ideaSender.trim() || 'Nàng độc giả sáng tạo',
-      characterSetup: characterSetup.trim(),
-      firstWhisper: firstWhisper.trim(),
-      backstory: backstory.trim(),
-      date: new Date().toLocaleDateString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        day: '2-digit',
-        month: '2-digit',
-      }),
-    };
+    const dateStr = new Date().toLocaleDateString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+    });
 
-    const updated = [newIdea, ...ideas];
-    setIdeas(updated);
     try {
-      localStorage.setItem('wyn_idea_submissions_v2', JSON.stringify(updated));
-    } catch {
-      //
+      await saveIdeaToFirestore({
+        ideaTitle: ideaTitle.trim(),
+        sender: ideaSender.trim() || 'Nàng độc giả sáng tạo',
+        characterSetup: characterSetup.trim(),
+        firstWhisper: firstWhisper.trim(),
+        backstory: backstory.trim(),
+        date: dateStr,
+      });
+      onToast('Idea nhân vật mới đã được đồng bộ gửi cho Wyn! Wyn cảm ơn nàng nhiều! ✨');
+      setIdeaTitle('');
+      setIdeaSender('');
+      setCharacterSetup('');
+      setFirstWhisper('');
+      setBackstory('');
+    } catch (err) {
+      console.warn('Could not sync idea to Firestore:', err);
+      onToast('Không thể đồng bộ ý tưởng lên Cloud lúc này, vui lòng thử lại!');
+    } finally {
+      setIsSubmittingIdea(false);
     }
-
-    onToast('Idea nhân vật mới đã được gửi cho Wyn! Wyn cảm ơn nàng nhiều! ✨');
-    setIdeaTitle('');
-    setIdeaSender('');
-    setCharacterSetup('');
-    setFirstWhisper('');
-    setBackstory('');
   };
 
-  const handleDeleteFeedback = (id: number) => {
+  const handleDeleteFeedback = async (id: string) => {
     sound.playPop();
-    const updated = feedbacks.filter((f) => f.id !== id);
-    setFeedbacks(updated);
     try {
-      localStorage.setItem('wyn_char_reviews_v2', JSON.stringify(updated));
-    } catch {
-      //
+      await deleteFeedbackFromFirestore(id);
+      onToast('Đã xóa phản hồi khỏi Cloud.');
+    } catch (err) {
+      console.warn('Could not delete feedback:', err);
+      onToast('Không thể xóa phản hồi lúc này.');
     }
-    onToast('Đã xóa phản hồi.');
   };
+
+  const handleDeleteIdea = async (id: string) => {
+    sound.playPop();
+    try {
+      await deleteIdeaFromFirestore(id);
+      onToast('Đã xóa ý tưởng khỏi Cloud.');
+    } catch (err) {
+      console.warn('Could not delete idea:', err);
+      onToast('Không thể xóa ý tưởng lúc này.');
+    }
+  };
+
+  const visibleFeedbacks = isAdmin ? feedbacks : feedbacks.filter((f) => f.isPublic);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8 animate-fadeIn">
@@ -239,8 +283,18 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
             {/* Wyn's Quote box */}
             <div className="p-3.5 rounded-2xl bg-white/80 border border-[#fbd9df] text-xs sm:text-sm text-slate-700 italic leading-relaxed">
               &ldquo;Nếu có gì sai sót thì hãy feedback để Wyn biết nè, xin đừng nặng lời nha. Xia xỉa! 🙏 Tym tym! 💕&rdquo;
-              <div className="text-[11px] font-bold text-[#b53457] not-italic mt-1.5">
-                — Wyn 🌸 (Chủ tiệm kẹo)
+              <div className="flex items-center gap-2 text-[11px] font-bold text-[#b53457] not-italic mt-2">
+                {wynAvatar && (
+                  <img
+                    src={wynAvatar}
+                    alt="Wyn"
+                    onError={(e) => {
+                      e.currentTarget.src = '/images/wyn_char_lian_1793720549992.jpg';
+                    }}
+                    className="w-6 h-6 rounded-full object-cover border border-rose-300 shrink-0"
+                  />
+                )}
+                <span>— Wyn 🌸 (Chủ tiệm kẹo)</span>
               </div>
             </div>
 
@@ -463,10 +517,11 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
 
                   <button
                     type="submit"
-                    className="flex items-center justify-center gap-2 px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-[#ff5364] via-[#ff6b57] to-[#ff7d45] hover:opacity-95 rounded-xl shadow-xs hover:shadow-md transition-all cursor-pointer whitespace-nowrap"
+                    disabled={isSubmittingReview}
+                    className="flex items-center justify-center gap-2 px-6 py-2.5 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-[#ff5364] via-[#ff6b57] to-[#ff7d45] hover:opacity-95 disabled:opacity-60 rounded-xl shadow-xs hover:shadow-md transition-all cursor-pointer whitespace-nowrap"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Gửi cảm nhận nhân vật 💕</span>
+                    <span>{isSubmittingReview ? 'Đang gửi...' : 'Gửi cảm nhận nhân vật 💕'}</span>
                   </button>
                 </div>
               </form>
@@ -503,12 +558,12 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Thư tâm tình ({feedbacks.filter((f) => f.isPublic).length})
+                  Thư tâm tình ({visibleFeedbacks.length})
                 </h4>
-                <span className="text-[10px] text-slate-400">Đã ghim</span>
+                <span className="text-[10px] text-emerald-600 font-semibold">● Đồng bộ Realtime</span>
               </div>
 
-              {feedbacks.filter((f) => f.isPublic).length === 0 ? (
+              {visibleFeedbacks.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-dashed border-[#fac8d1] p-6 text-center space-y-2">
                   <div className="w-10 h-10 mx-auto rounded-full bg-rose-50 flex items-center justify-center text-xl">
                     💌
@@ -519,9 +574,7 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                   </p>
                 </div>
               ) : (
-                feedbacks
-                  .filter((f) => f.isPublic)
-                  .map((item) => (
+                visibleFeedbacks.map((item) => (
                     <div
                       key={item.id}
                       className="bg-white rounded-2xl border border-[#fae2e5] p-4 shadow-2xs space-y-2.5"
@@ -532,9 +585,17 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                             {item.sender.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <h5 className="text-xs font-bold text-slate-800">
-                              {item.sender}
-                            </h5>
+                            <div className="flex items-center gap-1.5">
+                              <h5 className="text-xs font-bold text-slate-800">
+                                {item.sender}
+                              </h5>
+                              {!item.isPublic && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                                  <Lock className="w-2.5 h-2.5" />
+                                  Riêng tư
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-rose-500 font-medium">
                               Gửi tới: {item.characterName}
                             </span>
@@ -549,7 +610,7 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                             <button
                               type="button"
                               onClick={() => handleDeleteFeedback(item.id)}
-                              className="p-1 text-slate-300 hover:text-red-500"
+                              className="p-1 text-slate-300 hover:text-red-500 cursor-pointer"
                               title="Xóa phản hồi này"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -568,8 +629,11 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                         &ldquo;{item.reviewText}&rdquo;
                       </p>
 
-                      <div className="text-[10px] text-amber-600 font-semibold pt-1">
-                        🍬 {item.sweetness}/5 kẹo
+                      <div className="flex items-center justify-between text-[10px] text-amber-600 font-semibold pt-1">
+                        <span>🍬 {item.sweetness}/5 kẹo</span>
+                        {item.sticker && (
+                          <span className="text-rose-500 font-medium">{item.sticker}</span>
+                        )}
                       </div>
                     </div>
                   ))
@@ -674,10 +738,11 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                 {/* Submit button */}
                 <button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-[#ff5364] via-[#ff6b57] to-[#ff7d45] hover:opacity-95 rounded-xl shadow-xs hover:shadow-md transition-all cursor-pointer"
+                  disabled={isSubmittingIdea}
+                  className="w-full flex items-center justify-center gap-2 py-3 text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-[#ff5364] via-[#ff6b57] to-[#ff7d45] hover:opacity-95 disabled:opacity-60 rounded-xl shadow-xs hover:shadow-md transition-all cursor-pointer"
                 >
                   <Send className="w-4 h-4" />
-                  <span>Gửi Idea cho Wyn ✨</span>
+                  <span>{isSubmittingIdea ? 'Đang gửi...' : 'Gửi Idea cho Wyn ✨'}</span>
                 </button>
               </form>
             </div>
@@ -722,11 +787,23 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                     key={item.id}
                     className="bg-white rounded-2xl border border-[#fae2e5] p-4 shadow-2xs space-y-2 hover:border-amber-300 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-amber-700">
                         💡 {item.ideaTitle}
                       </span>
-                      <span className="text-[10px] text-slate-400">{item.date}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] text-slate-400">{item.date}</span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteIdea(item.id)}
+                            className="p-1 text-slate-300 hover:text-red-500 cursor-pointer"
+                            title="Xóa ý tưởng này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <p className="text-xs text-slate-600 leading-relaxed italic">
@@ -737,6 +814,12 @@ export const FeedbackPage: React.FC<FeedbackPageProps> = ({
                       <div className="text-[11px] text-amber-800 bg-amber-50/70 p-2 rounded-xl">
                         &ldquo;{item.firstWhisper}&rdquo;
                       </div>
+                    )}
+
+                    {item.backstory && (
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        {item.backstory}
+                      </p>
                     )}
 
                     <div className="text-[10px] text-slate-400 pt-1">

@@ -3,8 +3,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -15,25 +20,128 @@ service cloud.firestore {
       return resource.data;
     }
 
-    // Characters in Wyn's Candy Nest: anyone can browse characters; creation, edit and deletion validate id & payload structure
+    function isValidCharacter(data, characterId) {
+      return data.id is string
+        && data.id == characterId
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 128
+        && (!('likesCount' in data) || (data.likesCount is number && data.likesCount >= 0))
+        && (!('tastedCount' in data) || (data.tastedCount is number && data.tastedCount >= 0));
+    }
+
+    function isValidFeedback(data, feedbackId) {
+      return data.keys().hasAll(['id', 'characterName', 'sender', 'sweetness', 'reviewText', 'isPublic', 'date', 'createdAt'])
+        && data.keys().hasOnly(['id', 'characterName', 'sender', 'sweetness', 'quoteImpression', 'reviewText', 'isPublic', 'date', 'sticker', 'createdAt'])
+        && data.id is string
+        && data.id == feedbackId
+        && data.characterName is string
+        && data.characterName.size() > 0
+        && data.characterName.size() <= 150
+        && data.sender is string
+        && data.sender.size() > 0
+        && data.sender.size() <= 128
+        && data.sweetness is number
+        && data.sweetness >= 1
+        && data.sweetness <= 5
+        && (!('quoteImpression' in data) || (data.quoteImpression is string && data.quoteImpression.size() <= 500))
+        && data.reviewText is string
+        && data.reviewText.size() > 0
+        && data.reviewText.size() <= 4000
+        && data.isPublic is bool
+        && data.date is string
+        && data.date.size() > 0
+        && data.date.size() <= 64
+        && (!('sticker' in data) || (data.sticker is string && data.sticker.size() <= 128))
+        && data.createdAt is string
+        && data.createdAt.size() > 0
+        && data.createdAt.size() <= 64;
+    }
+
+    function isValidIdea(data, ideaId) {
+      return data.keys().hasAll(['id', 'ideaTitle', 'sender', 'characterSetup', 'date', 'createdAt'])
+        && data.keys().hasOnly(['id', 'ideaTitle', 'sender', 'characterSetup', 'firstWhisper', 'backstory', 'date', 'createdAt'])
+        && data.id is string
+        && data.id == ideaId
+        && data.ideaTitle is string
+        && data.ideaTitle.size() > 0
+        && data.ideaTitle.size() <= 200
+        && data.sender is string
+        && data.sender.size() > 0
+        && data.sender.size() <= 128
+        && data.characterSetup is string
+        && data.characterSetup.size() > 0
+        && data.characterSetup.size() <= 4000
+        && (!('firstWhisper' in data) || (data.firstWhisper is string && data.firstWhisper.size() <= 1000))
+        && (!('backstory' in data) || (data.backstory is string && data.backstory.size() <= 4000))
+        && data.date is string
+        && data.date.size() > 0
+        && data.date.size() <= 64
+        && data.createdAt is string
+        && data.createdAt.size() > 0
+        && data.createdAt.size() <= 64;
+    }
+
+    function isValidLuckyCandyDraw(data, drawId) {
+      return data.keys().hasAll(['id', 'characterId', 'characterName', 'type', 'createdAt'])
+        && data.keys().hasOnly(['id', 'characterId', 'characterName', 'characterAvatar', 'sweetFlavor', 'genre', 'type', 'createdAt'])
+        && data.id is string
+        && data.id == drawId
+        && data.characterId is string
+        && data.characterId.size() > 0
+        && data.characterId.size() <= 128
+        && data.characterName is string
+        && data.characterName.size() > 0
+        && data.characterName.size() <= 128
+        && (!('characterAvatar' in data) || (data.characterAvatar is string && data.characterAvatar.size() <= 2000000))
+        && (!('sweetFlavor' in data) || (data.sweetFlavor is string && data.sweetFlavor.size() <= 128))
+        && (!('genre' in data) || (data.genre is string && data.genre.size() <= 128))
+        && data.type in ['character', 'fortune']
+        && data.createdAt is string
+        && data.createdAt.size() > 0
+        && data.createdAt.size() <= 64;
+    }
+
+    // Characters in Wyn's Candy Nest: public browsing, validated writes & atomic heart/taste counters
     match /characters/{characterId} {
       allow read: if true;
-      allow create, update: if isValidId(characterId)
-        && incoming().id is string
-        && incoming().name is string
-        && incoming().name.size() > 0
-        && incoming().name.size() <= 128;
+      allow create, update: if isValidId(characterId) && isValidCharacter(incoming(), characterId);
       allow delete: if isValidId(characterId);
     }
 
-    // Shared Site Settings: includes background media, polaroid photo, site logo, custom genres, and global theme config
+    // Shared Site Settings: background media, polaroid photo, site logo, Wyn avatar, custom genres, luckyCandyStats
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isValidId(settingId)
-        && incoming().id is string;
+        && incoming().id is string
+        && incoming().id == settingId
+        && (!('totalDraws' in incoming()) || (incoming().totalDraws is number && incoming().totalDraws >= 0));
     }
 
-    // Suggestions & Reader Feedbacks
+    // Real-time Feedbacks & Reviews
+    match /feedbacks/{feedbackId} {
+      allow read: if true;
+      allow create: if isValidId(feedbackId) && isValidFeedback(incoming(), feedbackId);
+      allow update: if false;
+      allow delete: if isValidId(feedbackId);
+    }
+
+    // Real-time Character & Candy Flavor Ideas
+    match /ideas/{ideaId} {
+      allow read: if true;
+      allow create: if isValidId(ideaId) && isValidIdea(incoming(), ideaId);
+      allow update: if false;
+      allow delete: if isValidId(ideaId);
+    }
+
+    // Real-time Lucky Candy Draws
+    match /luckyCandyDraws/{drawId} {
+      allow read: if true;
+      allow create: if isValidId(drawId) && isValidLuckyCandyDraw(incoming(), drawId);
+      allow update, delete: if false;
+    }
+
+    // Suggestions
     match /suggestions/{suggestionId} {
       allow read: if true;
       allow write: if isValidId(suggestionId);
@@ -42,11 +150,6 @@ service cloud.firestore {
     // Connectivity test collection
     match /test/{testId} {
       allow read: if true;
-    }
-
-    // Fallback security catch-all
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }

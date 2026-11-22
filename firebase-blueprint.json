@@ -2,7 +2,7 @@
   "entities": {
     "character": {
       "title": "Character",
-      "description": "A character profile in Wyn's Candy Nest with backstory, dialogue, flavor and avatar",
+      "description": "A character profile in Wyn's Candy Nest with backstory, dialogue, flavor, avatar, tastedCount and likesCount",
       "type": "object",
       "properties": {
         "id": { "type": "string", "description": "Unique identifier of the character" },
@@ -14,15 +14,17 @@
         "firstMessage": { "type": "string", "description": "First whisper dialogue", "maxLength": 4000 },
         "backstory": { "type": "string", "description": "Background story and lore", "maxLength": 8000 },
         "avatar": { "type": "string", "description": "Avatar image link or data URL", "maxLength": 2000000 },
+        "characterLink": { "type": "string", "description": "External chat or profile link", "maxLength": 2048 },
         "link": { "type": "string", "description": "External chat or profile link", "maxLength": 2048 },
         "tastedCount": { "type": "number", "description": "Number of users who have tasted/opened this candy character" },
+        "likesCount": { "type": "number", "description": "Total number of hearts/likes from visitors" },
         "updatedAt": { "type": "string", "description": "Update timestamp" }
       },
       "required": ["id", "name"]
     },
     "siteSettings": {
       "title": "SiteSettings",
-      "description": "Global site customization such as background media, logo, polaroid photo and custom genres",
+      "description": "Global site customization such as background media, logo, polaroid photo, custom genres, and lucky candy draw stats",
       "type": "object",
       "properties": {
         "id": { "type": "string", "description": "Setting key identifier" },
@@ -36,10 +38,63 @@
         "name": { "type": "string", "description": "Preset name or file title", "maxLength": 256 },
         "photo": { "type": "string", "description": "Polaroid photo URL", "maxLength": 2000000 },
         "logo": { "type": "string", "description": "Site logo URL", "maxLength": 2000000 },
+        "avatar": { "type": "string", "description": "Wyn personal avatar URL", "maxLength": 2000000 },
         "genres": { "type": "array", "description": "Custom genres list" },
+        "totalDraws": { "type": "number", "description": "Total lucky candy draws across all visitors" },
+        "lastCharacterName": { "type": "string", "description": "Most recently drawn character name", "maxLength": 128 },
         "updatedAt": { "type": "string", "description": "Last updated timestamp" }
       },
       "required": ["id"]
+    },
+    "feedback": {
+      "title": "Feedback",
+      "description": "Reader review or whisper message submitted in Feedback Corner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique feedback ID" },
+        "characterName": { "type": "string", "description": "Target character name", "maxLength": 150 },
+        "sender": { "type": "string", "description": "Sender nickname", "maxLength": 128 },
+        "sweetness": { "type": "number", "description": "Sweetness rating from 1 to 5" },
+        "quoteImpression": { "type": "string", "description": "Favorite quote impression", "maxLength": 500 },
+        "reviewText": { "type": "string", "description": "Detailed feedback content", "maxLength": 4000 },
+        "isPublic": { "type": "boolean", "description": "Whether the feedback is shown publicly" },
+        "date": { "type": "string", "description": "Display date string", "maxLength": 64 },
+        "sticker": { "type": "string", "description": "Optional candy sticker tag", "maxLength": 128 },
+        "createdAt": { "type": "string", "description": "ISO creation timestamp", "maxLength": 64 }
+      },
+      "required": ["id", "characterName", "sender", "sweetness", "reviewText", "isPublic", "date", "createdAt"]
+    },
+    "idea": {
+      "title": "Idea",
+      "description": "New character or candy flavor idea submitted by readers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique idea ID" },
+        "ideaTitle": { "type": "string", "description": "Title of idea or candy flavor", "maxLength": 200 },
+        "sender": { "type": "string", "description": "Author nickname", "maxLength": 128 },
+        "characterSetup": { "type": "string", "description": "Personality, vibe and appearance description", "maxLength": 4000 },
+        "firstWhisper": { "type": "string", "description": "Suggested opening line", "maxLength": 1000 },
+        "backstory": { "type": "string", "description": "Backstory summary", "maxLength": 4000 },
+        "date": { "type": "string", "description": "Display date string", "maxLength": 64 },
+        "createdAt": { "type": "string", "description": "ISO creation timestamp", "maxLength": 64 }
+      },
+      "required": ["id", "ideaTitle", "sender", "characterSetup", "date", "createdAt"]
+    },
+    "luckyCandyDraw": {
+      "title": "LuckyCandyDraw",
+      "description": "A real-time record of a lucky candy draw event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique draw ID" },
+        "characterId": { "type": "string", "description": "Drawn character or fortune ID", "maxLength": 128 },
+        "characterName": { "type": "string", "description": "Drawn character or fortune name", "maxLength": 128 },
+        "characterAvatar": { "type": "string", "description": "Avatar URL or emoji preview", "maxLength": 2000000 },
+        "sweetFlavor": { "type": "string", "description": "Candy flavor label", "maxLength": 128 },
+        "genre": { "type": "string", "description": "Character genre", "maxLength": 128 },
+        "type": { "type": "string", "description": "Draw result type: character or fortune", "maxLength": 32 },
+        "createdAt": { "type": "string", "description": "ISO creation timestamp", "maxLength": 64 }
+      },
+      "required": ["id", "characterId", "characterName", "type", "createdAt"]
     },
     "suggestion": {
       "title": "Suggestion",
@@ -65,7 +120,19 @@
     },
     "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/siteSettings" },
-      "description": "Global website configuration shared across all visitors"
+      "description": "Global website configuration and counters shared across all visitors"
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": { "$ref": "#/entities/feedback" },
+      "description": "Real-time reader character reviews and feedback messages"
+    },
+    "/ideas/{ideaId}": {
+      "schema": { "$ref": "#/entities/idea" },
+      "description": "Real-time reader character and candy flavor ideas"
+    },
+    "/luckyCandyDraws/{drawId}": {
+      "schema": { "$ref": "#/entities/luckyCandyDraw" },
+      "description": "Real-time log of lucky candy draws by visitors"
     },
     "/suggestions/{suggestionId}": {
       "schema": { "$ref": "#/entities/suggestion" },
