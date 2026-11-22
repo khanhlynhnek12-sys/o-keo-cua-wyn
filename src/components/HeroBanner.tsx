@@ -4,6 +4,7 @@ import { sound } from '../utils/audio';
 
 interface HeroBannerProps {
   polaroidPhoto?: string;
+  wynAvatar?: string;
   isAdmin?: boolean;
   onOpenAdminPolaroid?: () => void;
   onOpenAddModal?: () => void;
@@ -14,6 +15,7 @@ interface HeroBannerProps {
 
 export const HeroBanner: React.FC<HeroBannerProps> = ({
   polaroidPhoto,
+  wynAvatar,
   isAdmin,
   onOpenAdminPolaroid,
   onOpenIntroModal,
@@ -155,8 +157,19 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
                 {/* Bottom Footer Row of Polaroid */}
                 <div className="flex items-center justify-between pt-1 px-1">
-                  <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700 dark:text-pink-200">
-                    <span>🎀</span>
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-pink-200">
+                    {wynAvatar ? (
+                      <img
+                        src={wynAvatar}
+                        alt="Avatar của Wyn"
+                        onError={(e) => {
+                          e.currentTarget.src = '/images/wyn_char_lian_1793720549992.jpg';
+                        }}
+                        className="w-5 h-5 rounded-full object-cover border border-rose-300 shadow-2xs shrink-0"
+                      />
+                    ) : (
+                      <span>🎀</span>
+                    )}
                     <span>Wyn's Memory #01</span>
                   </div>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/40">

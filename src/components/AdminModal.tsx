@@ -207,8 +207,38 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  const isLikelyImageUrl = (val: string) => {
+    const trimmed = val.trim();
+    return (
+      /^https?:\/\/\S+/i.test(trimmed) ||
+      trimmed.startsWith('data:image/') ||
+      trimmed.startsWith('/images/') ||
+      trimmed.startsWith('/assets/')
+    );
+  };
+
+  const handleHeroPhotoUrlChange = (val: string) => {
+    setHeroPhotoUrlInput(val);
+    if (heroPhotoAutoSaveTimerRef.current) {
+      clearTimeout(heroPhotoAutoSaveTimerRef.current);
+    }
+    const cleanUrl = val.trim();
+    if (!isLikelyImageUrl(cleanUrl)) return;
+
+    heroPhotoAutoSaveTimerRef.current = setTimeout(() => {
+      setHeroPhoto(cleanUrl);
+      if (onUpdateHeroPolaroidPhoto) {
+        onUpdateHeroPolaroidPhoto(cleanUrl);
+      }
+      onToast('Đã tự động lưu & đồng bộ ảnh Polaroid lên Firebase Cloud! 🖼️✨');
+    }, 650);
+  };
+
   const handleApplyHeroPhotoUrl = () => {
     if (!heroPhotoUrlInput.trim()) return;
+    if (heroPhotoAutoSaveTimerRef.current) {
+      clearTimeout(heroPhotoAutoSaveTimerRef.current);
+    }
     sound.playChime();
     const cleanUrl = heroPhotoUrlInput.trim();
     setHeroPhoto(cleanUrl);
@@ -339,7 +369,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Web Background Management State (matching image_52551d12.png)
-  const [bgMode, setBgMode] = useState<'video' | 'image'>(webBg?.mode || 'video');
+  const [bgMode, setBgMode] = useState<'video' | 'image'>(webBg?.mode || 'image');
   const [bgUrl, setBgUrl] = useState<string>(webBg?.url || '');
   const [bgOpacity, setBgOpacity] = useState<number>(webBg?.opacity ?? 0.45);
   const [bgOverlayTint, setBgOverlayTint] = useState<OverlayTint>(webBg?.overlayTint || 'pink');
@@ -349,12 +379,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [isCompressingBg, setIsCompressingBg] = useState(false);
   const [bgCompressionBadge, setBgCompressionBadge] = useState<string | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement | null>(null);
+  const bgUrlInputRef = useRef<HTMLInputElement | null>(null);
+  const bgAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync when webBg changes
+  // Sync when webBg changes from Firestore/other tabs (without overwriting while actively typing)
   useEffect(() => {
     if (webBg) {
-      setBgMode(webBg.mode || 'video');
-      setBgUrl(webBg.url || '');
+      setBgMode(webBg.mode || 'image');
+      if (bgUrlInputRef.current !== document.activeElement) {
+        setBgUrl(webBg.url || '');
+      }
       setBgOpacity(webBg.opacity ?? 0.45);
       setBgOverlayTint(webBg.overlayTint || 'pink');
       setBgLoop(webBg.loop !== false);
@@ -374,6 +408,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [wynAvatarUrlInput, setWynAvatarUrlInput] = useState('');
   const [isCompressingWynAvatar, setIsCompressingWynAvatar] = useState(false);
   const wynAvatarFileInputRef = useRef<HTMLInputElement | null>(null);
+  const wynAvatarAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logoAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heroPhotoAutoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (wynAvatarProp) {
@@ -391,6 +428,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   useEffect(() => {
     setCurrentSiteLogo(siteLogo || null);
   }, [siteLogo]);
+
+  useEffect(() => {
+    return () => {
+      if (wynAvatarAutoSaveTimerRef.current) clearTimeout(wynAvatarAutoSaveTimerRef.current);
+      if (logoAutoSaveTimerRef.current) clearTimeout(logoAutoSaveTimerRef.current);
+      if (heroPhotoAutoSaveTimerRef.current) clearTimeout(heroPhotoAutoSaveTimerRef.current);
+      if (bgAutoSaveTimerRef.current) clearTimeout(bgAutoSaveTimerRef.current);
+    };
+  }, []);
 
   // Extra Tab Settings: Announcement & Signature
   const [announcementText, setAnnouncementText] = useState(() => {
@@ -523,17 +569,42 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     overrides?: { opacity?: number; overlayTint?: OverlayTint; loop?: boolean },
     quiet = true
   ) => {
-    const finalUrl = customUrl !== undefined ? customUrl : bgUrl;
-    const finalMode = customMode !== undefined ? customMode : bgMode;
+    const finalUrl = (customUrl !== undefined ? customUrl : bgUrl).trim();
+    const requestedMode = customMode !== undefined ? customMode : bgMode;
     const finalOpacity = overrides?.opacity !== undefined ? overrides.opacity : bgOpacity;
     const finalOverlayTint = overrides?.overlayTint !== undefined ? overrides.overlayTint : bgOverlayTint;
     const finalLoop = overrides?.loop !== undefined ? overrides.loop : bgLoop;
 
-    const isVideo = finalMode === 'video' || finalUrl.endsWith('.mp4') || finalUrl.endsWith('.webm');
-    const isGif = finalUrl.endsWith('.gif') || finalUrl.includes('image/gif');
+    const lowerUrl = finalUrl.toLowerCase();
+    const looksLikeVideo =
+      lowerUrl.endsWith('.mp4') ||
+      lowerUrl.endsWith('.webm') ||
+      lowerUrl.endsWith('.ogg') ||
+      lowerUrl.includes('video/') ||
+      lowerUrl.startsWith('data:video/') ||
+      lowerUrl.includes('youtube.com') ||
+      lowerUrl.includes('youtu.be');
+    const looksLikeImage =
+      lowerUrl.startsWith('data:image/') ||
+      /\.(jpg|jpeg|png|webp|avif|gif|bmp)(\?.*)?$/i.test(lowerUrl) ||
+      lowerUrl.includes('images.unsplash.com');
+
+    const resolvedMode: 'video' | 'image' =
+      looksLikeImage && !looksLikeVideo
+        ? 'image'
+        : looksLikeVideo
+        ? 'video'
+        : requestedMode;
+
+    if (finalUrl && resolvedMode !== bgMode) {
+      setBgMode(resolvedMode);
+    }
+
+    const isVideo = resolvedMode === 'video' || looksLikeVideo;
+    const isGif = lowerUrl.endsWith('.gif') || lowerUrl.includes('image/gif');
 
     const updatedConfig: WebBackgroundConfig = {
-      mode: finalMode,
+      mode: resolvedMode,
       type: finalUrl ? (isVideo ? 'video' : isGif ? 'gif' : 'image') : 'none',
       url: finalUrl,
       opacity: finalOpacity,
@@ -546,7 +617,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     onUpdateWebBg?.(updatedConfig);
     if (!quiet) {
       sound.playSuccess();
-      onToast('Đã lưu & áp dụng nền mới cho toàn bộ trang web! 🖼️✨');
+      onToast('Đã lưu & áp dụng nền mới lên Firebase Cloud cho toàn bộ trang web! 🖼️✨');
     }
   };
 
@@ -585,10 +656,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  const handleWynAvatarUrlChange = (val: string) => {
+    setWynAvatarUrlInput(val);
+    if (wynAvatarAutoSaveTimerRef.current) {
+      clearTimeout(wynAvatarAutoSaveTimerRef.current);
+    }
+    const cleanUrl = val.trim();
+    if (!isLikelyImageUrl(cleanUrl)) return;
+
+    wynAvatarAutoSaveTimerRef.current = setTimeout(() => {
+      setWynAvatar(cleanUrl);
+      if (onUpdateWynAvatar) {
+        onUpdateWynAvatar(cleanUrl);
+      } else {
+        saveWynAvatarToFirestore(cleanUrl).catch(() => {});
+      }
+      onToast('Đã tự động lưu & đồng bộ Avatar Wyn lên Firebase Cloud! 🎀');
+    }, 650);
+  };
+
   const handleApplyWynAvatarUrl = () => {
     if (!wynAvatarUrlInput.trim()) {
       onToast('Vui lòng nhập URL ảnh đại diện!');
       return;
+    }
+    if (wynAvatarAutoSaveTimerRef.current) {
+      clearTimeout(wynAvatarAutoSaveTimerRef.current);
     }
     const cleanUrl = wynAvatarUrlInput.trim();
     setWynAvatar(cleanUrl);
@@ -632,10 +725,28 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  const handleLogoUrlChange = (val: string) => {
+    setLogoUrlInput(val);
+    if (logoAutoSaveTimerRef.current) {
+      clearTimeout(logoAutoSaveTimerRef.current);
+    }
+    const cleanUrl = val.trim();
+    if (!isLikelyImageUrl(cleanUrl)) return;
+
+    logoAutoSaveTimerRef.current = setTimeout(() => {
+      setCurrentSiteLogo(cleanUrl);
+      onUpdateLogo?.(cleanUrl);
+      onToast('Đã tự động lưu & đồng bộ Logo web lên Firebase Cloud! 🍭');
+    }, 650);
+  };
+
   const handleApplyLogoUrl = () => {
     if (!logoUrlInput.trim()) {
       onToast('Vui lòng nhập URL logo!');
       return;
+    }
+    if (logoAutoSaveTimerRef.current) {
+      clearTimeout(logoAutoSaveTimerRef.current);
     }
     setCurrentSiteLogo(logoUrlInput.trim());
     onUpdateLogo?.(logoUrlInput.trim());
@@ -1694,12 +1805,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               : 'Đường dẫn Ảnh nền trực tiếp (URL Image / GIF)'}
                           </label>
                           <input
+                            ref={bgUrlInputRef}
                             type="text"
                             value={bgUrl}
                             onChange={(e) => {
                               const val = e.target.value;
                               setBgUrl(val);
-                              handleApplyBg(val, bgMode, undefined, true);
+                              if (bgAutoSaveTimerRef.current) {
+                                clearTimeout(bgAutoSaveTimerRef.current);
+                              }
+                              const trimmed = val.trim();
+                              if (!trimmed) {
+                                bgAutoSaveTimerRef.current = setTimeout(() => {
+                                  handleApplyBg('', bgMode, undefined, true);
+                                }, 400);
+                                return;
+                              }
+                              if (
+                                /^https?:\/\/\S+/i.test(trimmed) ||
+                                trimmed.startsWith('data:') ||
+                                trimmed.startsWith('/images/') ||
+                                trimmed.startsWith('/assets/')
+                              ) {
+                                bgAutoSaveTimerRef.current = setTimeout(() => {
+                                  handleApplyBg(trimmed, bgMode, undefined, false);
+                                }, 550);
+                              }
                             }}
                             placeholder={
                               bgMode === 'video'
@@ -2057,6 +2188,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             <img
                               src={wynAvatar}
                               alt="Avatar của nàng Wyn"
+                              onError={(e) => {
+                                e.currentTarget.src = DEFAULT_WYN_AVATAR;
+                              }}
                               className="w-full h-full rounded-full object-cover group-hover:scale-105 transition-transform"
                             />
                           </div>
@@ -2070,7 +2204,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
 
                         <div className="space-y-1">
-                          <div className="text-xs font-bold text-slate-800">Wyn's Profile Picture</div>
+                          <div className="text-xs font-bold text-slate-800 flex items-center justify-center gap-1.5">
+                            <span>Wyn's Profile Picture</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Cloud Sync
+                            </span>
+                          </div>
                           <p className="text-[11px] text-slate-500">
                             Khuyên dùng tỷ lệ 1:1, dung lượng &lt; 5MB (PNG, JPG, WebP)
                           </p>
@@ -2081,13 +2221,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           )}
                         </div>
 
-                        {/* URL input and update button */}
+                        {/* URL input and update button (auto-saves on valid URL) */}
                         <div className="w-full space-y-2 pt-1">
                           <input
                             type="text"
                             value={wynAvatarUrlInput}
-                            onChange={(e) => setWynAvatarUrlInput(e.target.value)}
-                            placeholder="Hoặc dán URL ảnh đại diện..."
+                            onChange={(e) => handleWynAvatarUrlChange(e.target.value)}
+                            placeholder="Dán link ảnh đại diện mới (tự động lưu Cloud)..."
                             className="w-full px-3.5 py-2 text-xs bg-white border border-[#fac8d1] rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 text-slate-800 placeholder-slate-400 transition-colors"
                           />
                           <button
@@ -2265,13 +2405,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           </div>
                         </div>
 
-                        {/* URL input and update button for logo */}
+                        {/* URL input and update button for logo (auto-saves on valid URL) */}
                         <div className="w-full space-y-2 pt-1">
                           <input
                             type="text"
                             value={logoUrlInput}
-                            onChange={(e) => setLogoUrlInput(e.target.value)}
-                            placeholder="Hoặc dán URL Logo kẹo..."
+                            onChange={(e) => handleLogoUrlChange(e.target.value)}
+                            placeholder="Dán link Logo kẹo mới (tự động lưu Cloud)..."
                             className="w-full px-3.5 py-2 text-xs bg-white border border-[#fac8d1] rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 text-slate-800 placeholder-slate-400 transition-colors"
                           />
                           <button
@@ -2455,8 +2595,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             <input
                               type="text"
                               value={heroPhotoUrlInput}
-                              onChange={(e) => setHeroPhotoUrlInput(e.target.value)}
-                              placeholder="https://example.com/anh-phong-ngu.jpg"
+                              onChange={(e) => handleHeroPhotoUrlChange(e.target.value)}
+                              placeholder="Dán link ảnh Polaroid mới (tự động lưu Cloud)..."
                               className="flex-1 px-3.5 py-2 text-xs bg-white border border-[#fac8d1] rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 text-slate-800 placeholder-slate-400"
                             />
                             <button

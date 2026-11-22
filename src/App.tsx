@@ -755,14 +755,20 @@ export default function App() {
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           {(() => {
             const ytId = getYouTubeId(webBg.url);
+            const lowerBgUrl = webBg.url.toLowerCase();
+            const looksLikeImageBg =
+              lowerBgUrl.startsWith('data:image/') ||
+              /\.(jpg|jpeg|png|webp|avif|gif|bmp)(\?.*)?$/i.test(lowerBgUrl) ||
+              lowerBgUrl.includes('images.unsplash.com');
             const isVideoMode =
-              webBg.mode === 'video' ||
-              webBg.type === 'video' ||
-              ytId !== null ||
-              webBg.url.startsWith('blob:') ||
-              webBg.url.includes('video/') ||
-              webBg.url.endsWith('.mp4') ||
-              webBg.url.endsWith('.webm');
+              !looksLikeImageBg &&
+              (webBg.mode === 'video' ||
+                webBg.type === 'video' ||
+                ytId !== null ||
+                webBg.url.startsWith('blob:') ||
+                lowerBgUrl.includes('video/') ||
+                lowerBgUrl.endsWith('.mp4') ||
+                lowerBgUrl.endsWith('.webm'));
 
             if (ytId) {
               return (
@@ -885,6 +891,7 @@ export default function App() {
             {/* Hero Section matching mockup */}
             <HeroBanner
               polaroidPhoto={heroPolaroidPhoto}
+              wynAvatar={wynAvatar}
               isAdmin={isAdmin}
               onOpenAdminPolaroid={() => {
                 setAdminInitialTab('polaroid');
