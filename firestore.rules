@@ -1,0 +1,52 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Characters in Wyn's Candy Nest: anyone can browse characters; creation, edit and deletion validate id & payload structure
+    match /characters/{characterId} {
+      allow read: if true;
+      allow create, update: if isValidId(characterId)
+        && incoming().id is string
+        && incoming().name is string
+        && incoming().name.size() > 0
+        && incoming().name.size() <= 128;
+      allow delete: if isValidId(characterId);
+    }
+
+    // Shared Site Settings: includes background media, polaroid photo, site logo, custom genres, and global theme config
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isValidId(settingId)
+        && incoming().id is string;
+    }
+
+    // Suggestions & Reader Feedbacks
+    match /suggestions/{suggestionId} {
+      allow read: if true;
+      allow write: if isValidId(suggestionId);
+    }
+
+    // Connectivity test collection
+    match /test/{testId} {
+      allow read: if true;
+    }
+
+    // Fallback security catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

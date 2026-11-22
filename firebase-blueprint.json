@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "character": {
+      "title": "Character",
+      "description": "A character profile in Wyn's Candy Nest with backstory, dialogue, flavor and avatar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the character" },
+        "name": { "type": "string", "description": "Character name", "maxLength": 128 },
+        "tagline": { "type": "string", "description": "Short bio or tagline", "maxLength": 256 },
+        "sweetFlavor": { "type": "string", "description": "Candy flavor e.g. Kẹo Dâu Tây", "maxLength": 128 },
+        "sweetness": { "type": "number", "description": "Sweetness score between 1 and 5" },
+        "genre": { "type": "string", "description": "Story genre or category tag", "maxLength": 128 },
+        "firstMessage": { "type": "string", "description": "First whisper dialogue", "maxLength": 4000 },
+        "backstory": { "type": "string", "description": "Background story and lore", "maxLength": 8000 },
+        "avatar": { "type": "string", "description": "Avatar image link or data URL", "maxLength": 2000000 },
+        "link": { "type": "string", "description": "External chat or profile link", "maxLength": 2048 },
+        "tastedCount": { "type": "number", "description": "Number of users who have tasted/opened this candy character" },
+        "updatedAt": { "type": "string", "description": "Update timestamp" }
+      },
+      "required": ["id", "name"]
+    },
+    "siteSettings": {
+      "title": "SiteSettings",
+      "description": "Global site customization such as background media, logo, polaroid photo and custom genres",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Setting key identifier" },
+        "mode": { "type": "string", "description": "Background mode: video or image" },
+        "type": { "type": "string", "description": "Media type: none, image, video, gif" },
+        "url": { "type": "string", "description": "Image or video URL / compressed data URL", "maxLength": 2000000 },
+        "opacity": { "type": "number", "description": "Background opacity from 0.1 to 1" },
+        "blur": { "type": "number", "description": "Optional blur in px" },
+        "overlayTint": { "type": "string", "description": "Overlay color tint" },
+        "loop": { "type": "boolean", "description": "Loop video playback" },
+        "name": { "type": "string", "description": "Preset name or file title", "maxLength": 256 },
+        "photo": { "type": "string", "description": "Polaroid photo URL", "maxLength": 2000000 },
+        "logo": { "type": "string", "description": "Site logo URL", "maxLength": 2000000 },
+        "genres": { "type": "array", "description": "Custom genres list" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["id"]
+    },
+    "suggestion": {
+      "title": "Suggestion",
+      "description": "Reader feedback and genre ideas submitted to Wyn",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique suggestion ID" },
+        "genreName": { "type": "string", "description": "Genre title" },
+        "sender": { "type": "string", "description": "Sender name" },
+        "characterVibe": { "type": "string", "description": "Vibe or character description" },
+        "sampleQuote": { "type": "string", "description": "Sample quote" },
+        "storyIdea": { "type": "string", "description": "Story idea details" },
+        "sweetnessLevel": { "type": "number", "description": "Sweetness rating" },
+        "date": { "type": "string", "description": "Submission date" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/characters/{characterId}": {
+      "schema": { "$ref": "#/entities/character" },
+      "description": "Characters list accessible for viewing and management"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/siteSettings" },
+      "description": "Global website configuration shared across all visitors"
+    },
+    "/suggestions/{suggestionId}": {
+      "schema": { "$ref": "#/entities/suggestion" },
+      "description": "User suggestions and reader feedback"
+    }
+  }
+}

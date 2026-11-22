@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Ổ kẹo ngọt của Wyn",
+  "description": "Trang web chọn nhân vật với hiệu ứng chuyển cảnh mượt mà, thẻ nhân vật chi tiết, cốt truyện, lời thoại và đường dẫn tương tác.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
